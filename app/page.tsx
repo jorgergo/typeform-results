@@ -78,14 +78,8 @@ const DEFAULT_ANSWER_PATTERNS: Array<{ pattern: string; answer: string }> = [
 
 const ALLOWED_QUESTION_PATTERNS = new Set(DEFAULT_ANSWER_PATTERNS.map(({ pattern }) => pattern));
 
-const percentFormatter = new Intl.NumberFormat("es-MX", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
 const SPOTLIGHT_LIMIT = 10;
 const COMPACT_BATCH_SIZE = 36;
-const SCORE_TIE_EPSILON = 0.0001;
 
 const subscribeToNoopStore = () => () => {};
 
@@ -106,27 +100,6 @@ function normalizeText(value: string) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function parseNumber(value: string) {
-  if (!value) {
-    return null;
-  }
-
-  const cleaned = value.replace(/\s/g, "");
-  const match = cleaned.match(/-?\d+(?:[.,]\d+)?/);
-  if (!match) {
-    return null;
-  }
-
-  const normalized = match[0].replace(",", ".");
-  const parsed = Number.parseFloat(normalized);
-
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-
-  return parsed;
 }
 
 function parseUtcTimestamp(value: string) {
@@ -156,48 +129,6 @@ function parseUtcTimestamp(value: string) {
   }
 
   return parsed;
-}
-
-function similarity(a: string, b: string) {
-  if (!a && !b) {
-    return 1;
-  }
-
-  if (a === b) {
-    return 1;
-  }
-
-  const distance = levenshtein(a, b);
-  const maxLength = Math.max(a.length, b.length, 1);
-  return Math.max(0, 1 - distance / maxLength);
-}
-
-function levenshtein(a: string, b: string) {
-  const rows = b.length + 1;
-  const cols = a.length + 1;
-  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
-
-  for (let i = 0; i < cols; i += 1) {
-    matrix[0][i] = i;
-  }
-
-  for (let j = 0; j < rows; j += 1) {
-    matrix[j][0] = j;
-  }
-
-  for (let j = 1; j < rows; j += 1) {
-    for (let i = 1; i < cols; i += 1) {
-      const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
-
-      matrix[j][i] = Math.min(
-        matrix[j - 1][i] + 1,
-        matrix[j][i - 1] + 1,
-        matrix[j - 1][i - 1] + substitutionCost,
-      );
-    }
-  }
-
-  return matrix[rows - 1][cols - 1];
 }
 
 function getDetectedQuestions(headers: string[]) {
@@ -265,6 +196,12 @@ function formatCompletionTime(durationMs?: number | null) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatCorrectAnswers(correctAnswers: number, totalQuestions: number) {
+  const safeCorrectAnswers = Number.isFinite(correctAnswers) ? Math.max(0, Math.round(correctAnswers)) : 0;
+  const safeTotalQuestions = Math.max(0, totalQuestions);
+  return `${safeCorrectAnswers}/${safeTotalQuestions}`;
+}
+
 function toParticipantName(row: CsvRow) {
   const firstName = valueByNormalizedHeader(row, "first name");
   const lastName = valueByNormalizedHeader(row, "last name");
@@ -277,66 +214,28 @@ function toParticipantName(row: CsvRow) {
   return valueByNormalizedHeader(row, "#") || "Participante sin nombre";
 }
 
-function computeQuestionScale(rows: CsvRow[], question: string, expectedAnswer: string) {
-  const target = parseNumber(expectedAnswer);
-  if (target === null) {
-    return null;
-  }
-
-  const observed = rows
-    .map((row) => parseNumber((row[question] ?? "").toString()))
-    .filter((value): value is number => value !== null);
-
-  const min = observed.length > 0 ? Math.min(...observed) : target;
-  const max = observed.length > 0 ? Math.max(...observed) : target;
-  const range = Math.abs(max - min);
-
-  return {
-    target,
-    scale: Math.max(1, Math.abs(target), range),
-  };
-}
-
 function scoreResponses(
   rows: CsvRow[],
   selectedQuestions: string[],
   answerKey: Record<string, string>,
 ) {
-  const scales: Record<string, ReturnType<typeof computeQuestionScale>> = {};
-
-  selectedQuestions.forEach((question) => {
-    scales[question] = computeQuestionScale(rows, question, answerKey[question] ?? "");
-  });
-
   const ranking = rows.map((row, sourceOrder) => {
     const questionScores: Record<string, number> = {};
-    let scoreSum = 0;
+    let totalCorrectAnswers = 0;
 
     selectedQuestions.forEach((question) => {
       const expected = answerKey[question] ?? "";
       const currentValue = (row[question] ?? "").toString();
-      const numericScale = scales[question];
-
-      let score = 0;
-
-      if (numericScale) {
-        const participantNumber = parseNumber(currentValue);
-        if (participantNumber !== null) {
-          const delta = Math.abs(participantNumber - numericScale.target);
-          score = Math.max(0, 1 - delta / numericScale.scale);
-        }
-      } else {
-        score = similarity(normalizeText(currentValue), normalizeText(expected));
-      }
+      const score = normalizeText(currentValue) === normalizeText(expected) ? 1 : 0;
 
       questionScores[question] = score;
-      scoreSum += score;
+      totalCorrectAnswers += score;
     });
 
     return {
       participant: toParticipantName(row),
       company: valueByNormalizedHeader(row, "company") || "Sin empresa",
-      totalScore: selectedQuestions.length > 0 ? (scoreSum / selectedQuestions.length) * 100 : 0,
+      totalScore: totalCorrectAnswers,
       questionScores,
       completionTimeMs: getCompletionTimeMs(row),
       sourceOrder,
@@ -346,7 +245,7 @@ function scoreResponses(
   return ranking
     .sort((a, b) => {
       const scoreDelta = b.totalScore - a.totalScore;
-      if (Math.abs(scoreDelta) > SCORE_TIE_EPSILON) {
+      if (scoreDelta !== 0) {
         return scoreDelta;
       }
 
@@ -402,8 +301,9 @@ function createRankingCsv(ranking: RankingEntry[], selectedQuestions: string[]) 
     "rank",
     "participant",
     "company",
-    "total_score_pct",
-    ...selectedQuestions.map((question, index) => `q${index + 1}_score_pct:${question}`),
+    "correct_answers",
+    "total_questions",
+    ...selectedQuestions.map((question, index) => `q${index + 1}_result:${question}`),
   ];
 
   const lines = [headers.map(escapeCsvValue).join(",")];
@@ -413,8 +313,11 @@ function createRankingCsv(ranking: RankingEntry[], selectedQuestions: string[]) 
       entry.rank,
       entry.participant,
       entry.company,
-      entry.totalScore.toFixed(1),
-      ...selectedQuestions.map((question) => (entry.questionScores[question] * 100).toFixed(0)),
+      entry.totalScore,
+      selectedQuestions.length,
+      ...selectedQuestions.map((question) =>
+        entry.questionScores[question] === 1 ? "correcta" : "incorrecta",
+      ),
     ];
     lines.push(row.map(escapeCsvValue).join(","));
   });
@@ -449,12 +352,11 @@ export default function Home() {
   );
 
   const completion = useMemo(() => {
-    if (questions.length === 0) {
-      return 0;
-    }
-
     const completed = questions.filter((question) => (answerKey[question] ?? "").trim()).length;
-    return Math.round((completed / questions.length) * 100);
+    return {
+      completed,
+      total: questions.length,
+    };
   }, [answerKey, questions]);
 
   const resetRankingPresentation = () => {
@@ -807,7 +709,7 @@ export default function Home() {
                 <ListChecks aria-hidden="true" size={18} strokeWidth={2.3} className="section-title-icon" />
                 <span>2. Definir Respuestas</span>
               </h2>
-              <span>{completion}% completo</span>
+              <span>{completion.completed}/{completion.total} respuestas</span>
             </div>
             <div className="answer-actions">
               <button
@@ -875,8 +777,8 @@ export default function Home() {
             <span>{isAnalyzing ? "Calculando…" : "Generar Ranking"}</span>
           </button>
           <p>
-            Para preguntas numericas, el score se calcula por distancia relativa al valor esperado.
-            Para texto, usamos similitud de cadenas. Si hay empate de score final, gana quien
+            Cada respuesta vale 1 punto si coincide exactamente con la opcion correcta y 0 si no.
+            Si hay empate de aciertos, gana quien
             completo el quiz en menos tiempo (Submit Date - Start Date).
           </p>
         </section>
@@ -956,9 +858,9 @@ export default function Home() {
                   <article>
                     <span className="stage-launch-metric-label">
                       <Trophy aria-hidden="true" size={14} strokeWidth={2.35} />
-                      <span>Puntaje maximo</span>
+                      <span>Aciertos maximos</span>
                     </span>
-                    <strong>{percentFormatter.format(ranking[0]?.totalScore ?? 0)} pts</strong>
+                    <strong>{formatCorrectAnswers(ranking[0]?.totalScore ?? 0, questions.length)}</strong>
                   </article>
                   <article>
                     <span className="stage-launch-metric-label">
@@ -1040,8 +942,8 @@ export default function Home() {
                       <p className="podium-company">{entry.company}</p>
                       <div className="podium-stats" aria-label="Metricas del participante">
                         <span className="top-score time-badge">
-                          <span className="time-badge-label">Score</span>
-                          <span>{percentFormatter.format(entry.totalScore)} pts</span>
+                          <span className="time-badge-label">Aciertos</span>
+                          <span>{formatCorrectAnswers(entry.totalScore, questions.length)}</span>
                         </span>
                         <span className="time-badge">
                           <span className="time-badge-label">Tiempo</span>
@@ -1061,8 +963,8 @@ export default function Home() {
                         <span className="top-name">{entry.participant}</span>
                         <span className="top-meta">
                           <span className="top-score time-badge">
-                            <span className="time-badge-label">Score</span>
-                            <span>{percentFormatter.format(entry.totalScore)}</span>
+                            <span className="time-badge-label">Aciertos</span>
+                            <span>{formatCorrectAnswers(entry.totalScore, questions.length)}</span>
                           </span>
                           <span className="top-time time-badge">
                             <span className="time-badge-label">Tiempo</span>
@@ -1097,8 +999,8 @@ export default function Home() {
                         <p className="podium-rank">#{entry.rank}</p>
                         <div className="result-card-metrics">
                           <span className="top-score time-badge">
-                            <span className="time-badge-label">Score</span>
-                            <span>{percentFormatter.format(entry.totalScore)} pts</span>
+                            <span className="time-badge-label">Aciertos</span>
+                            <span>{formatCorrectAnswers(entry.totalScore, questions.length)}</span>
                           </span>
                           <span className="result-time time-badge">
                             <span className="time-badge-label">Tiempo</span>
@@ -1114,7 +1016,7 @@ export default function Home() {
                             key={`card-${entry.rank}-${question}`}
                             title={`Pregunta ${questionIndex + 1}: ${question}`}
                           >
-                            P{questionIndex + 1}: {(entry.questionScores[question] * 100).toFixed(0)}%
+                            P{questionIndex + 1}: {entry.questionScores[question] === 1 ? "Correcta" : "Incorrecta"}
                           </span>
                         ))}
                       </div>
@@ -1143,13 +1045,13 @@ export default function Home() {
             {showRankingPreview && resultsView === "table" ? (
               <div className="results-table-wrap is-bounded" aria-label="Tabla completa de ranking">
                 <table>
-                  <caption className="sr-only">Resultados ordenados por puntuacion total</caption>
+                  <caption className="sr-only">Resultados ordenados por total de aciertos</caption>
                   <thead>
                     <tr>
                       <th scope="col">Rank</th>
                       <th scope="col">Participante</th>
                       <th scope="col">Empresa</th>
-                      <th scope="col">Score total</th>
+                      <th scope="col">Aciertos</th>
                       <th scope="col">Tiempo</th>
                       <th scope="col">Detalle por pregunta</th>
                     </tr>
@@ -1160,7 +1062,7 @@ export default function Home() {
                         <td className="numeric-cell">#{entry.rank}</td>
                         <td>{entry.participant}</td>
                         <td>{entry.company}</td>
-                        <td className="numeric-cell">{percentFormatter.format(entry.totalScore)}</td>
+                        <td className="numeric-cell">{formatCorrectAnswers(entry.totalScore, questions.length)}</td>
                         <td className="numeric-cell">{formatCompletionTime(entry.completionTimeMs)}</td>
                         <td>
                           <div className="chips">
@@ -1169,7 +1071,7 @@ export default function Home() {
                                 key={`${entry.rank}-${question}`}
                                 title={`Pregunta ${questionIndex + 1}: ${question}`}
                               >
-                                {(entry.questionScores[question] * 100).toFixed(0)}%
+                                {entry.questionScores[question] === 1 ? "Correcta" : "Incorrecta"}
                               </span>
                             ))}
                           </div>

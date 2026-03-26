@@ -82,11 +82,6 @@ const STAGE_BACKGROUND_STYLE: CSSProperties = {
 const ACTION_BUTTON_CLASS =
   "rounded-full border border-blue-200/35 bg-blue-950/75 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:-translate-y-0.5 hover:bg-blue-800/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-200";
 
-const scoreFormatter = new Intl.NumberFormat("es-MX", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
 const subscribeToNoopStore = () => () => {};
 
 function stepIndex(step: StageStep) {
@@ -178,6 +173,12 @@ function formatCompletionTime(durationMs?: number | null) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatCorrectAnswers(correctAnswers: number, totalQuestions: number) {
+  const safeCorrectAnswers = Number.isFinite(correctAnswers) ? Math.max(0, Math.round(correctAnswers)) : 0;
+  const safeTotalQuestions = Math.max(0, totalQuestions);
+  return `${safeCorrectAnswers}/${safeTotalQuestions}`;
+}
+
 function StageShell({ children }: { children: ReactNode }) {
   return (
     <main className={STAGE_ROOT_CLASS} style={STAGE_BACKGROUND_STYLE}>
@@ -231,6 +232,7 @@ function StagePresentation() {
   }, [hasHydrated, sessionId]);
 
   const ranking = session?.ranking ?? [];
+  const totalQuestions = session?.selectedQuestions.length ?? 0;
   const topThree = ranking.slice(0, 3);
   const gold = topThree[0] ?? null;
   const silver = topThree[1] ?? null;
@@ -395,7 +397,7 @@ function StagePresentation() {
                   </p>
                   <p className="mt-3 text-sm uppercase tracking-[0.12em] text-blue-100/85">{silver.company}</p>
                   <strong className="mt-2 block text-[clamp(1.2rem,1.8vw,1.8rem)] font-black text-white">
-                    {scoreFormatter.format(silver.totalScore)} pts
+                    {formatCorrectAnswers(silver.totalScore, totalQuestions)}
                   </strong>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-blue-100/85">
                     Tiempo: {formatCompletionTime(silver.completionTimeMs)}
@@ -415,7 +417,7 @@ function StagePresentation() {
                   </p>
                   <p className="mt-4 text-sm uppercase tracking-[0.12em] text-blue-100/90">{gold.company}</p>
                   <strong className="mt-2 block text-[clamp(1.25rem,2vw,1.95rem)] font-black text-white">
-                    {scoreFormatter.format(gold.totalScore)} pts
+                    {formatCorrectAnswers(gold.totalScore, totalQuestions)}
                   </strong>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-blue-100/90">
                     Tiempo: {formatCompletionTime(gold.completionTimeMs)}
@@ -435,7 +437,7 @@ function StagePresentation() {
                   </p>
                   <p className="mt-3 text-sm uppercase tracking-[0.12em] text-blue-100/85">{bronze.company}</p>
                   <strong className="mt-2 block text-[clamp(1.15rem,1.75vw,1.7rem)] font-black text-white">
-                    {scoreFormatter.format(bronze.totalScore)} pts
+                    {formatCorrectAnswers(bronze.totalScore, totalQuestions)}
                   </strong>
                   <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-blue-100/85">
                     Tiempo: {formatCompletionTime(bronze.completionTimeMs)}
@@ -479,7 +481,7 @@ function StagePresentation() {
                   </span>
                   <strong className="mt-1 block text-center text-base text-white">{entry.participant}</strong>
                   <em className="mt-0.5 block text-center text-sm not-italic text-blue-100/90">
-                    {scoreFormatter.format(entry.totalScore)} pts
+                    {formatCorrectAnswers(entry.totalScore, totalQuestions)}
                   </em>
                   <span className="mt-1 block text-center text-xs font-semibold uppercase tracking-[0.08em] text-blue-100/80">
                     Tiempo: {formatCompletionTime(entry.completionTimeMs)}
@@ -511,7 +513,7 @@ function StagePresentation() {
                     Empresa
                   </th>
                   <th className="px-3 py-3 text-center font-bold !text-white [text-shadow:0_1px_0_rgba(2,8,20,0.68)]">
-                    Score
+                    Aciertos
                   </th>
                   <th className="px-3 py-3 text-center font-bold !text-white [text-shadow:0_1px_0_rgba(2,8,20,0.68)]">
                     Tiempo
@@ -528,7 +530,7 @@ function StagePresentation() {
                     <td className="px-3 py-2.5 text-center font-medium text-blue-50">{entry.participant}</td>
                     <td className="px-3 py-2.5 text-center font-medium text-blue-100">{entry.company}</td>
                     <td className="px-3 py-2.5 text-center font-semibold tabular-nums text-white">
-                      {scoreFormatter.format(entry.totalScore)}
+                      {formatCorrectAnswers(entry.totalScore, totalQuestions)}
                     </td>
                     <td className="px-3 py-2.5 text-center font-semibold tabular-nums text-blue-100">
                       {formatCompletionTime(entry.completionTimeMs)}
