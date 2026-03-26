@@ -22,10 +22,6 @@ jobs:
             echo "Missing required secret: VERCEL_ORG_ID"
             exit 1
           fi
-          if [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
-            echo "Missing required secret: VERCEL_PROJECT_ID"
-            exit 1
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,20 +29,11 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
-      - name: Pull Vercel project settings
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN_TYPEFORM }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Build project artifacts
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN_TYPEFORM }}
+      - name: Link project non-interactively
+        run: vercel link --yes --non-interactive --token=${{ secrets.VERCEL_TOKEN_TYPEFORM }} --team=${{ secrets.VERCEL_ORG_ID }} --project=typeform-results
 
       - name: Deploy to production
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN_TYPEFORM }}
+        run: vercel deploy --prod --yes --token=${{ secrets.VERCEL_TOKEN_TYPEFORM }} --scope=${{ secrets.VERCEL_ORG_ID }}
