@@ -7,9 +7,25 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN_TYPEFORM }}" ]; then
+            echo "Missing required secret: VERCEL_TOKEN_TYPEFORM"
+            exit 1
+          fi
+          if [ -z "${{ secrets.VERCEL_ORG_ID }}" ]; then
+            echo "Missing required secret: VERCEL_ORG_ID"
+            exit 1
+          fi
+          if [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+            echo "Missing required secret: VERCEL_PROJECT_ID"
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
