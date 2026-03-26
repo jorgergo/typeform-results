@@ -55,11 +55,6 @@ const NON_QUESTION_COLUMNS = new Set(
 );
 
 const DEFAULT_ANSWER_PATTERNS: Array<{ pattern: string; answer: string }> = [
-  { pattern: "cuantos metros mide este cable", answer: "50" },
-  { pattern: "cuantos rj45 hay", answer: "100" },
-  { pattern: "cuantas personas crees que asistan hoy al kickoff", answer: "180" },
-  { pattern: "cuantas vueltas tiene este cable", answer: "34" },
-  { pattern: "que hay mas cables azules o cables negros", answer: "Azules" },
   {
     pattern:
       "cual es el nombre del sitio de panduit que permite al integrador descargar contenido digital para sus redes sociales",
@@ -80,6 +75,8 @@ const DEFAULT_ANSWER_PATTERNS: Array<{ pattern: string; answer: string }> = [
     answer: "Ducto ranurado",
   },
 ];
+
+const ALLOWED_QUESTION_PATTERNS = new Set(DEFAULT_ANSWER_PATTERNS.map(({ pattern }) => pattern));
 
 const percentFormatter = new Intl.NumberFormat("es-MX", {
   minimumFractionDigits: 1,
@@ -204,7 +201,15 @@ function levenshtein(a: string, b: string) {
 }
 
 function getDetectedQuestions(headers: string[]) {
-  return headers.filter((header) => !NON_QUESTION_COLUMNS.has(normalizeKey(header)));
+  return headers.filter((header) => {
+    const normalizedHeader = normalizeKey(header);
+
+    if (NON_QUESTION_COLUMNS.has(normalizedHeader)) {
+      return false;
+    }
+
+    return [...ALLOWED_QUESTION_PATTERNS].some((pattern) => normalizedHeader.includes(pattern));
+  });
 }
 
 function getPrefilledAnswerKey(questions: string[]) {
@@ -614,6 +619,17 @@ export default function Home() {
         }
 
         const detectedQuestions = getDetectedQuestions(parsedHeaders);
+
+        if (detectedQuestions.length === 0) {
+          setRows(parsedRows);
+          setQuestions([]);
+          setAnswerKey({});
+          setError("El CSV no incluye ninguna de las preguntas permitidas para este ranking.");
+          resetRankingPresentation();
+          setStatusMessage("No se detectaron preguntas habilitadas en el archivo cargado.");
+          return;
+        }
+
         setRows(parsedRows);
         setQuestions(detectedQuestions);
         setAnswerKey(getPrefilledAnswerKey(detectedQuestions));
@@ -780,8 +796,8 @@ export default function Home() {
               </span>
             </label>
             <small id="upload-help">
-              El analisis ignora columnas no relacionadas a respuestas de preguntas, incluyendo
-              metadatos del formulario.
+              El analisis ignora metadatos del formulario y cualquier pregunta fuera del bloque
+              habilitado para este ranking.
             </small>
           </article>
 
